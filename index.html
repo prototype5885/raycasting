@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>RayCasting</title>
+    <style>
+      canvas {
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body style="margin: 0; overflow: hidden">
+    <canvas id="canvas"></canvas>
+
+    <script>
+      const GreyColor = [50, 50, 50];
+      const DarkerGreyColor = [30, 30, 30];
+
+      class Player {
+        constructor() {
+          this.moveDirRad;
+          this.speed;
+          this.posX;
+          this.posY;
+          this.rotRad;
+          this.rotDeg;
+          this.fov;
+        }
+      }
+
+      function deg2rad(value) {
+        return value * (Math.PI / 180.0);
+      }
+
+      function rad2deg(value) {
+        return value * 57.29578;
+      }
+
+      async function getAndReadTilemapFile() {
+        console.log("Reading tilemap file");
+
+        const imageUrl = "tilemap.png";
+        const textureSize = 64;
+
+        const img = new Image();
+        img.src = imageUrl;
+
+        await new Promise((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Failed to load image"));
+        });
+
+        if (img.width !== img.height) {
+          console.error("Wrong texture dimension");
+          return null;
+        }
+
+        const texturesCount = Math.floor(img.width / textureSize);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+
+        const imgData = ctx.getImageData(0, 0, img.width, img.height).data;
+
+        let tilemap = [];
+        let yOffset = 0;
+        for (let row = 0; row < texturesCount; row++) {
+          let xOffset = 0;
+          for (let column = 0; column < texturesCount; column++) {
+            for (let pixel = 0; pixel < textureSize * textureSize; pixel++) {
+              let x = (pixel % textureSize) + xOffset;
+              let y = Math.floor(pixel / textureSize) + yOffset;
+
+              const rgb = ctx.getImageData(x, y, 1, 1).data;
+
+              tilemap.push(rgb[0]);
+              tilemap.push(rgb[1]);
+              tilemap.push(rgb[2]);
+            }
+            xOffset += textureSize;
+          }
+
+          yOffset += textureSize;
+        }
+
+        tilemap = new Uint8Array(tilemap);
+
+        return tilemap;
+      }
+
+      function castRays(pixels, player, width, height, mapBlocks, tilemap) {
+        for (let ray = 0; ray < width; ray++) {
+          const aspectRatio = width / height;
+          let rayAngle = player.rotRad - aspectRatio / 2.0;
+          rayAngle += (deg2rad(ray) / deg2rad(width)) * aspectRatio;
+
+          let dx = Math.cos(rayAngle);
+          let dy = Math.sin(rayAngle);
+
+          if (dx === 0) {
+            dx = 0.00001;
+          }
+          if (dy === 0) {
+            dy = 0.00001;
+          }
+
+          let mapX = Math.floor(player.posX);
+          let mapY = Math.floor(player.posY);
+
+          let sideDistX = 0.0;
+          let sideDistY = 0.0;
+
+          const deltaDistX = Math.abs(1.0 / dx);
+          const deltaDistY = Math.abs(1.0 / dy);
+
+          let distance = 0.0;
+
+          let stepX = 0;
+          let stepY = 0;
+
+          let hitPointX = 0.0;
+          let hitPointY = 0.0;
+
+          let tOffset = 0;
+
+          if (dx < 0.0) {
+            stepX = -1;
+            sideDistX = (player.posX - mapX) * deltaDistX;
+          } else {
+            stepX = 1;
+            sideDistX = (mapX + 1.0 - player.posX) * deltaDistX;
+          }
+
+          if (dy < 0.0) {
+            stepY = -1;
+            sideDistY = (player.posY - mapY) * deltaDistY;
+          } else {
+            stepY = 1;
+            sideDistY = (mapY + 1.0 - player.posY) * deltaDistY;
+          }
+
+          let side = false;
+          let attempt = 0;
+          while (attempt < 128) {
+            attempt += 1;
+
+            if (sideDistX < sideDistY) {
+              sideDistX += deltaDistX;
+              mapX += stepX;
+              side = false;
+            } else {
+              sideDistY += deltaDistY;
+              mapY += stepY;
+              side = true;
+            }
+
+            const i = mapY * 16 + mapX;
+
+            if (i > 255) {
+              return;
+            }
+            const wallType = mapBlocks[i];
+            if (wallType === 1) {
+              tOffset = 0 * 4096;
+              break;
+            } else if (wallType === 2) {
+              tOffset = 1 * 4096;
+              break;
+            }
+          }
+          if (attempt >= 64) {
+          }
+          if (!side) {
+            distance = (mapX - player.posX + (1.0 - stepX) / 2.0) / dx;
+            hitPointX = mapX + stepX / 2.0;
+            hitPointY = player.posY + distance * dy;
+          } else {
+            distance = (mapY - player.posY + (1.0 - stepY) / 2.0) / dy;
+            hitPointX = player.posX + distance * dx;
+            hitPointY = mapY + stepY / 2.0;
+          }
+
+          distance = distance * Math.cos(rayAngle - player.rotRad);
+
+          const wallHeight = Math.floor(height / distance);
+          const middle = height / 2;
+
+          let startPos = Math.floor(middle - wallHeight / 2);
+          if (startPos < 0) {
+            startPos = 0;
+          }
+
+          let endPos = Math.floor(middle + wallHeight / 2);
+          if (endPos >= height) {
+            endPos = height - 1;
+          }
+
+          let percentage = 1.0 - (distance - 4.0) / (16.0 - 4.0);
+
+          if (distance < 4.0) {
+            percentage = 1.0;
+          } else if (distance > 16.0) {
+            percentage = 0.0;
+          }
+
+          if (percentage < 0.25) {
+            percentage = 0.25;
+          }
+
+          const stepBetweenHorizontalSegments = 64.0 / wallHeight;
+
+          let offset = 0.0;
+          if (wallHeight > height) {
+            offset = (wallHeight - height) / 2.0;
+          }
+
+          let horizontalSegment = offset * stepBetweenHorizontalSegments;
+
+          let c = 0.0;
+          if (side) {
+            c = hitPointX - Math.floor(hitPointX);
+          } else {
+            c = hitPointY - Math.floor(hitPointY);
+          }
+
+          for (
+            let pixel = Math.floor(startPos);
+            pixel < Math.floor(endPos);
+            pixel++
+          ) {
+            const verticalSegment = Math.floor(64.0 * c);
+
+            const hpi = Math.floor(horizontalSegment) * 64 + verticalSegment;
+            horizontalSegment += stepBetweenHorizontalSegments;
+
+            const index = Math.floor((pixel * width + ray) * 4);
+
+            const tilemapIndex = Math.floor((hpi + tOffset) * 3);
+
+            const r = tilemap[tilemapIndex];
+            const g = tilemap[tilemapIndex + 1];
+            const b = tilemap[tilemapIndex + 2];
+
+            pixels[index] = Math.floor(r * percentage);
+            pixels[index + 1] = Math.floor(g * percentage);
+            pixels[index + 2] = Math.floor(b * percentage);
+            pixels[index + 3] = 255;
+          }
+        }
+        return pixels;
+      }
+
+      async function main() {
+        const tilemap = await getAndReadTilemapFile();
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        const canvas = document.getElementById("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        canvas.addEventListener("click", function () {
+          canvas.requestPointerLock();
+        });
+
+        const ctx = canvas.getContext("2d");
+
+        const imageData = ctx.createImageData(width, height);
+        let pixels = imageData.data;
+        const size = pixels.length;
+
+        // prettier-ignore
+        const mapBlocks = [
+          		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        ]
+
+        let player = new Player();
+
+        player.posX = 8.0;
+        player.posY = 8.0;
+        player.fov = 90.0;
+        player.rotRad = 0.0;
+        player.speed = 0.0;
+
+        const playerSpeedDefault = 4.0;
+        let sprintMultiplier = 1.0;
+        const sprintMultiplierDefault = 4.0;
+
+        let wKeyPressed = 0;
+        let sKeyPressed = 0;
+        let aKeyPressed = 0;
+        let dKeyPressed = 0;
+
+        document.addEventListener("mousemove", function (event) {
+          player.rotRad += deg2rad(event.movementX);
+          if (player.rotRad < -Math.PI) {
+            player.rotRad += 2 * Math.PI;
+          } else if (player.rotRad > Math.PI) {
+            player.rotRad -= 2 * Math.PI;
+          }
+
+          player.rotDeg = rad2deg(player.rotRad);
+        });
+
+        document.addEventListener("keydown", function (event) {
+          switch (event.code) {
+            case "KeyW":
+              wKeyPressed = 1;
+              break;
+            case "KeyA":
+              aKeyPressed = 1;
+              break;
+            case "KeyS":
+              sKeyPressed = 1;
+              break;
+            case "KeyD":
+              dKeyPressed = 1;
+              break;
+            case "ShiftLeft":
+            case "ShiftRight":
+              sprintMultiplier = sprintMultiplierDefault;
+              break;
+          }
+        });
+
+        document.addEventListener("keyup", function (event) {
+          switch (event.code) {
+            case "KeyW":
+              wKeyPressed = 0;
+              break;
+            case "KeyA":
+              aKeyPressed = 0;
+              break;
+            case "KeyS":
+              sKeyPressed = 0;
+              break;
+            case "KeyD":
+              dKeyPressed = 0;
+              break;
+            case "ShiftLeft":
+            case "ShiftRight":
+              sprintMultiplier = 1;
+              break;
+          }
+        });
+
+        function loop() {
+          const sideways = dKeyPressed - aKeyPressed;
+          const forwards = wKeyPressed - sKeyPressed;
+
+          if (sideways != 0 || forwards != 0) {
+            player.speed = playerSpeedDefault;
+          } else {
+            player.speed = 0.0;
+          }
+
+          const speedMultiplier = 0.0166 * player.speed * sprintMultiplier;
+
+          player.moveDirRad = Math.atan2(sideways, forwards);
+
+          const colX = Math.floor(
+            player.posX + Math.cos(player.rotRad + player.moveDirRad) / 2.0
+          );
+          const colY = Math.floor(
+            player.posY + Math.sin(player.rotRad + player.moveDirRad) / 2.0
+          );
+
+          const i = colY * 16 + colX;
+
+          if (i < 256) {
+            if (mapBlocks[i] === 0) {
+              player.posX +=
+                Math.cos(player.rotRad + player.moveDirRad) * speedMultiplier;
+              player.posY +=
+                Math.sin(player.rotRad + player.moveDirRad) * speedMultiplier;
+            }
+          }
+
+          for (let i = 0; i < size; i += 4) {
+            const pixelIndex = i / 4;
+            const y = Math.floor(pixelIndex / width);
+
+            if (y > height / 2) {
+              pixels[i] = GreyColor[0];
+              pixels[i + 1] = GreyColor[1];
+              pixels[i + 2] = GreyColor[2];
+              pixels[i + 3] = 255;
+            } else {
+              pixels[i] = DarkerGreyColor[0];
+              pixels[i + 1] = DarkerGreyColor[1];
+              pixels[i + 2] = DarkerGreyColor[2];
+              pixels[i + 3] = 255;
+            }
+          }
+
+          imageData.data = castRays(
+            pixels,
+            player,
+            width,
+            height,
+            mapBlocks,
+            tilemap
+          );
+
+          ctx.putImageData(imageData, 0, 0);
+          requestAnimationFrame(loop);
+        }
+
+        loop();
+      }
+
+      main();
+    </script>
+  </body>
+</html>
