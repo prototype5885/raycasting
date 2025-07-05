@@ -17,7 +17,7 @@
         height: 100%;
         pointer-events: none;
       }
-      #fpsText {
+      h1 {
         color: white;
       }
     </style>
@@ -25,6 +25,7 @@
   <body style="margin: 0; overflow: hidden">
     <canvas id="canvas"></canvas>
     <div id="overlay">
+      <h1 id="resolutionText">()</h1>
       <h1 id="fpsText">0</h1>
     </div>
     <script>
@@ -277,6 +278,10 @@
         const canvas = document.getElementById("canvas");
         canvas.width = width;
         canvas.height = height;
+
+        document.getElementById(
+          "resolutionText"
+        ).innerText = `${width}x${height}`;
 
         canvas.addEventListener("click", function () {
           canvas.requestPointerLock();
