@@ -383,7 +383,7 @@
 
         let frames = 0;
 
-        function loop() {
+        setInterval(() => {
           frames++;
           const startTime = Date.now();
 
@@ -458,9 +458,7 @@
           }
 
           requestAnimationFrame(loop);
-        }
-
-        loop();
+        }, 0);
       }
 
       main();
