@@ -5,12 +5,28 @@
     <style>
       canvas {
         image-rendering: pixelated;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      #fpsText {
+        color: white;
       }
     </style>
   </head>
   <body style="margin: 0; overflow: hidden">
     <canvas id="canvas"></canvas>
-
+    <div id="overlay">
+      <h1 id="fpsText">0</h1>
+    </div>
     <script>
       const GreyColor = [50, 50, 50];
       const DarkerGreyColor = [30, 30, 30];
@@ -362,7 +378,15 @@
           }
         });
 
+        let deltaTime = 1.0;
+        let currentTime = Date.now();
+
+        let frames = 0;
+
         function loop() {
+          frames++;
+          const startTime = Date.now();
+
           const sideways = dKeyPressed - aKeyPressed;
           const forwards = wKeyPressed - sKeyPressed;
 
@@ -372,7 +396,8 @@
             player.speed = 0.0;
           }
 
-          const speedMultiplier = 0.0166 * player.speed * sprintMultiplier;
+          const speedMultiplier =
+            0.0166 * player.speed * sprintMultiplier * deltaTime;
 
           player.moveDirRad = Math.atan2(sideways, forwards);
 
@@ -421,6 +446,17 @@
           );
 
           ctx.putImageData(imageData, 0, 0);
+
+          const elapsedTime = Date.now() - currentTime;
+          deltaTime = ((Date.now() - startTime) * 60.0) / 1000.0;
+
+          if (elapsedTime >= 1000) {
+            const averageFps = frames;
+            document.getElementById("fpsText").innerText = averageFps;
+            currentTime = Date.now();
+            frames = 0;
+          }
+
           requestAnimationFrame(loop);
         }
 
